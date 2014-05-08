@@ -4,3 +4,104 @@
  #include <linux/module.h>
  #include <linux/init.h>
  #include <linux/cpufreq.h>
+ #include <linux/cpu.h>
+ #include <linux/jiffies.h>
+ #include <linux/kernel_stat.h>
+ #include <linux/mutex.h>
+ #include <linux/hrtimer.h>
+ #include <linux/tick.h>
+ #include <linux/ktime.h>
+ #include <linux/sched.h>
+ #include <linux/cpuidle.h>
+ 
+ #define DEF_FREQUENCY_UP_THRESHOLD		  (95)
+ #define DEF_FREQUENCY_DOWN_THRESHOLD		  (40)
+ #define MIN_SAMPLING_RATE_RATIO		  (2)
+ #define MIN_SAMPLING_RATE                       10000
+ #define DEF_SAMPLING_RATE                       15000
+
+ static unsigned int min_sampling_rate;
+
+ #define LATENCY_MULTIPLIER			                  (500)
+ #define MIN_LATENCY_MULTIPLIER			              (20)
+ #define DEF_SAMPLING_DOWN_FACTOR		             (1)
+ #define MAX_SAMPLING_DOWN_FACTOR		             (10)
+ #define TRANSITION_LATENCY_LIMIT		             (10 * 1000 * 1000)
+
+ static void do_dbs_timer(struct work_struct *work);
+ static int pufreq_governor_dbs(struct cpufreq_policy *policy,
+                               unsigned int event);
+                               
+ #ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_DANCEDANCE
+ static
+ #endif
+ struct cpufreq_governor cpufreq_gov_dancedance = {
+     .name                   = "dancedance",
+     .governor               = cpufreq_governor_dbs,
+     .max_transition_latency = TRANSITION_LATENCY_LIMIT,
+     .owner                  = THIS_MODULE,
+};
+
+ /* Sampling types */
+ enum {DBS_NORMAL_SAMPLE, DBS_SUB_SAMPLE};
+ 
+ struct cpu_dbs)info_s {
+     cputime64_t prev_cpu_idle;
+     cputime64_t prev_cpu_iowait;
+     cputime64_t prev_cpu_wall;
+     cputime64_t prev_cpu_nice;
+     struct cpufreq_policy *cur_policy;
+     struct delayed_work work;
+     struct cpufreq_frequency_table *freq_table;
+         unsigned int down_skip;
+         unsigned int requested_freq;
+     unsigned int freq_lo;
+     unsigned int freq_lo_jffies;
+     unsigned int freq_hi_jiffies;
+     unsigned int rate_mult;
+     int cpu;
+     unsigned int sample_type:1;
+     unsigned long long prev_idletime;
+     unsigned long long prev_idleusage;
+         unsigned int enable:1;
+         struct mutex timer_mutex;
+};
+ static DEFINE_PER_CPU(struct cpu_dbs_info_s, cs_cpu_dbs_info);
+
+ static unsigned itn dbs_enable; /* number of CPUs using this policy */
+ 
+ /*
+ * dbs_mutex protects dbs_enable in governor start/stop.
+ */
+ static DEFINE_MUTEX(dbs_mutex);
+ 
+ static struct dbs_tuners {
+     unsigned int sampling_rate;
+     unsigned int up_threshold;
+     unsigned int down_differential;
+     unsigned int ignore_nice;
+     unsigned int sampling_down_factor;
+     unsigned int powersave_bias;
+     unsigned int io_is_busy;
+     unsigned int target_residency;
+     unsigned int allowed_misses;
+         unsigned int freq_step;
+         unsigned int down_threshold;
+ } dbs_tuners_ins = {
+         .up_threshold = DEF_FREQUENCY_UP_THRESHOLD,
+         .down_threshold = DEF_FREQUENCY_DOWN_THRESHOLD,
+         .sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR,
+         .ignore_nice = 0,
+         .freq_step = 3,
+};
+
+ static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu,
+                                                  u64 *wall)
+ {
+    u64 idle_time;
+    u64 cur_wall_time;
+    u64 busy_time;
+    
+    cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
+    
+    
