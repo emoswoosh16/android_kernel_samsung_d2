@@ -118,7 +118,7 @@
     return jiffies_to_usecs(idle_time);
 }
 
-static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
+ static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 {
     u64 idle_time = get_cpu_idle_time_us(cpu, wall);
     
@@ -129,8 +129,8 @@ static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 }
 
 /* keep track of frequency transitions */
-static int
-dbs_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
+ static int
+ dbs_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
                     void *data)
 {
        struct cpufreq_freqs *freq = data;
@@ -160,3 +160,55 @@ static struct notifier_block dbs_cpufreq_notifier_block = {
 };
 
 /*************** sysfs interface ***************/
+static ssize_t show_sampling_rate_min(struct kobject *kobj,
+				                                  struct attribute *attr, char *buf)
+{
+	       return sprintf(buf, "%u\n", min_sampling_rate);
+}
+
+ define_one_global_ro(sampling_rate_min);
+
+/* cpufreq_dancedance Governor Tunables */
+ #define show_one(file_name, object)					\
+ static ssize_t show_##file_name						\
+  (struct kobject *kobj, struct attribute *attr, char *buf)		\
+{									\
+	         return sprintf(buf, "%u\n", dbs_tuners_ins.object);		\
+}
+ show_one(sampling_rate, sampling_rate);
+ show_one(sampling_down_factor, sampling_down_factor);
+ show_one(up_threshold, up_threshold);
+ show_one(down_threshold, down_threshold);
+ show_one(ignore_nice_load, ignore_nice);
+ show_one(freq_step, freq_step);
+
+ static ssize_t store_sampling_down_factor(struct kobject *a,
+					                                      struct attribute *b,
+					                                      const char *buf, size_t count)
+{
+	       unsigned int input;
+	       int ret;
+	       ret = sscanf(buf, "%u", &input);
+
+	       if (ret != 1 || input > MAX_SAMPLING_DOWN_FACTOR || input < 1)
+		              return -EINVAL;
+
+	       dbs_tuners_ins.sampling_down_factor = input;
+	       return count;
+}
+
+ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
+				                                const char *buf, size_t count)
+{
+	        unsigned int input;
+	        int ret;
+	        ret = sscanf(buf, "%u", &input);
+
+        	if (ret != 1)
+	     	          return -EINVAL;
+
+	        dbs_tuners_ins.sampling_rate = max(input, min_sampling_rate);
+	        return count;
+}
+
+static ssize_t store_up_threshold(struct kobject *a, struct attribute *b,
