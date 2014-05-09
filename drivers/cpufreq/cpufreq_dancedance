@@ -22,11 +22,11 @@
 
  static unsigned int min_sampling_rate;
 
- #define LATENCY_MULTIPLIER			                  (500)
- #define MIN_LATENCY_MULTIPLIER			              (20)
- #define DEF_SAMPLING_DOWN_FACTOR		             (1)
- #define MAX_SAMPLING_DOWN_FACTOR		             (10)
- #define TRANSITION_LATENCY_LIMIT		             (10 * 1000 * 1000)
+ #define LATENCY_MULTIPLIER			        (500)
+ #define MIN_LATENCY_MULTIPLIER		        (20)
+ #define DEF_SAMPLING_DOWN_FACTOR		        (1)
+ #define MAX_SAMPLING_DOWN_FACTOR		        (10)
+ #define TRANSITION_LATENCY_LIMIT		        (10 * 1000 * 1000)
 
  static void do_dbs_timer(struct work_struct *work);
  static int pufreq_governor_dbs(struct cpufreq_policy *policy,
@@ -104,4 +104,59 @@
     
     cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
     
+    busy_time  = kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
+    busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_NICE];
     
+    idle_time = cur_wall_time - busy_time;
+    if (wall)
+       *wall = jiffies_to_usecs(cur_wall_time);
+    
+    return jiffies_to_usecs(idle_time);
+}
+
+static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
+{
+    u64 idle_time = get_cpu_idle_time_us(cpu, wall);
+    
+    if (idle_time == -1ULL)
+       return get_cpu_idle_time_jiffy(cpu, wall);
+       
+    return idle_time;
+}
+
+/* keep track of frequency transitions */
+static int
+dbs_cpufreq_notifier(struct notifier_block *nb, unsigned long val,
+                    void *data)
+{
+       struct cpufreq_freqs *freq = data;
+       struct cpu_dbs_info_s *this_dbs_info = &per_cpu(cs_cpu_dbs_info,
+                                                       freq->cpu);
+       
+       struct cpufreq_policy *policy;
+       
+       if (!this_dbs_info->enable)
+               return 0;
+       
+       policy = this_dbs_info->cur_policy;
+       
+       
+       
+       
+       if (this_dbs_info->requested_freq > policy->max
+                       || this_dbs_info->requested_freq < policy->min)
+               this_dbs_info->requested_freq = freq->new;
+               
+       
+       return 0;
+}
+
+static struct notifier_block dbs_cpufreq_notifier_block = {
+        .notifier_call = dbs_cpufreq_notifier
+};
+
+/*************** sysfs interface ***************/
